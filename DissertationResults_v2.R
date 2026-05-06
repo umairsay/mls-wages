@@ -1,9 +1,8 @@
-#############################
 #  MLS wages ~ performance & popularity
 #  v2: plots pop up inline; four new additions
-#############################
 
-## Repro + options
+
+# Repro + options
 set.seed(123)
 options(contrasts = c("contr.treatment","contr.poly"))
 options(modelsummary_factory_latex = "kableExtra")
@@ -18,8 +17,8 @@ to_install <- setdiff(packs, rownames(installed.packages()))
 if (length(to_install)) install.packages(to_install, dependencies = TRUE)
 invisible(lapply(packs, library, character.only = TRUE))
 
-## ========== Data ==========
-## UPDATE PATH to your clean file
+# data
+
 df <- read_excel("/Users/umairs/Desktop/Work/Dissertation/DissertationFiles/2024mlsStatsFinal_clean.xlsx")
 
 needed <- c(
@@ -30,7 +29,8 @@ needed <- c(
 )
 stopifnot(all(needed %in% names(df)))
 
-## Clean + transform
+# clean
+
 df <- df %>%
   mutate(
     rosterDesignation = if_else(is.na(rosterDesignation) | trimws(rosterDesignation)=="", "Regular", rosterDesignation),
@@ -48,20 +48,22 @@ df <- df %>%
     rosterDesignation = forcats::fct_relevel(rosterDesignation, "Regular")
   )
 
-## ========== Plot helpers & theme ==========
+# plot helpers
+
 theme_set(theme_minimal(base_size = 12))
 cap <- function(x, upper) pmin(x, upper)
 
 YRANGE  <- range(df$log_w2025, na.rm = TRUE)
 P99_POP <- quantile(df$popularity_z, 0.99, na.rm = TRUE)
 
-## ========== Output 1: Summary stats ==========
+# summary
+
 datasummary_skim(
   df %>% select(salary2025, dlog_wage, overall_score, popularity_z, age, mins),
   output = "markdown"
 )
 
-## ========== Output 2: Salary by designation ==========
+# salary x designation
 df <- df %>%
   mutate(rosterDesignation_plot =
            forcats::fct_reorder(rosterDesignation, log_w2025, .fun = median, na.rm = TRUE))
@@ -72,15 +74,16 @@ p_box <- ggplot(df, aes(y = rosterDesignation_plot, x = log_w2025)) +
        y = "Roster Designation", x = "Log Salary (2025)")
 print(p_box)
 
-## ========== Exploratory visuals ==========
+# exploratory
+
 perf_vec <- c("attack_score","creation_score","progression_score","dribbling_score","defense_score")
 
-## Build N lookup from actual data counts, then map by label
+# Build N lookup from actual data counts, then map by label
 rd_counts <- table(as.character(df$rosterDesignation))
 add_n <- function(f){ paste0(f, " (N=", rd_counts[f], ")") }
 df <- df %>% mutate(rosterDesignation_lab = forcats::fct_relabel(rosterDesignation, add_n))
 
-## Components vs log salary
+# Components vs log salary
 perf_long <- df %>% pivot_longer(cols = all_of(perf_vec), names_to = "component", values_to = "score")
 p_comp <- ggplot(perf_long, aes(x = score, y = log_w2025)) +
   geom_point(alpha = 0.35, size = 1) +
@@ -91,7 +94,7 @@ p_comp <- ggplot(perf_long, aes(x = score, y = log_w2025)) +
        x = "Component Score (z)", y = "Log Salary (2025)")
 print(p_comp)
 
-## Popularity vs salary by designation
+# Popularity vs salary by designation
 p_pop <- ggplot(df, aes(x = cap(popularity_z, P99_POP), y = log_w2025)) +
   geom_point(alpha = 0.45, size = 1) +
   geom_smooth(method = "lm", se = FALSE) +
@@ -100,8 +103,8 @@ p_pop <- ggplot(df, aes(x = cap(popularity_z, P99_POP), y = log_w2025)) +
        x = "Popularity (z, clamped at 99th pct for plotting)", y = "Log Salary (2025)")
 print(p_pop)
 
-## ========== [NEW 1] Player-level salary vs performance scatter with labels ==========
-## Highlights the most interesting outliers — overperformers & underperformers relative to pay
+# Player-level salary vs performance scatter with labels
+# Highlights the most interesting outliers — overperformers & underperformers relative to pay
 simple_fit        <- lm(log_w2025 ~ overall_score, data = df)
 df$pred_simple    <- fitted(simple_fit)
 df$resid_simple   <- residuals(simple_fit)
@@ -123,7 +126,8 @@ p_scatter <- ggplot(df, aes(x = overall_score, y = log_w2025)) +
   theme(legend.position = "right")
 print(p_scatter)
 
-## ========== Correlation Matrix ==========
+# corr matrix
+
 vars <- df %>% select(
   overall_score, attack_score, creation_score, progression_score,
   dribbling_score, defense_score, popularity_z, age, mins
@@ -131,7 +135,7 @@ vars <- df %>% select(
 C <- cor(vars, use = "pairwise.complete.obs", method = "pearson")
 knitr::kable(round(C, 2))
 
-## ========== Specifications ==========
+# specifications
 controls <- "age + I(age^2) + mins + position + rosterDesignation"
 f_levels_overall   <- as.formula(paste("log_w2025 ~ overall_score + popularity_z +", controls, "| club"))
 f_levels_overall_x <- as.formula(paste("log_w2025 ~ overall_score * popularity_z +", controls, "| club"))
@@ -139,14 +143,16 @@ f_levels_vector    <- as.formula(paste("log_w2025 ~", paste(c(perf_vec,"populari
 f_growth_overall   <- as.formula(paste("dlog_wage  ~ overall_score + popularity_z +", controls, "| club"))
 f_growth_vector    <- as.formula(paste("dlog_wage  ~", paste(c(perf_vec,"popularity_z",controls), collapse=" + "), "| club"))
 
-## ========== Estimate core models ==========
+# estimation of core models
+
 m1 <- feols(f_levels_overall,   data = df, cluster = ~ club)
 m2 <- feols(f_levels_overall_x, data = df, cluster = ~ club)
 m3 <- feols(f_levels_vector,    data = df, cluster = ~ club)
 m4 <- feols(f_growth_overall,   data = df, cluster = ~ club)
 m5 <- feols(f_growth_vector,    data = df, cluster = ~ club)
 
-## ========== Table 3: Baseline regressions ==========
+# baseliens regressions
+
 gof_map2 <- tibble::tribble(
   ~raw,            ~clean,        ~fmt,
   "nobs",          "Observations", 0,
@@ -181,7 +187,8 @@ modelsummary(
 )
 cat("\nNote: Omitted categories are Defender (position) and Regular (roster designation).\n\n")
 
-## ========== Wald tests ==========
+# wald tests
+
 wt_m3 <- wald(m3, keep = perf_vec)
 wt_m5 <- wald(m5, keep = perf_vec)
 wald_tbl <- tibble::tibble(
@@ -193,7 +200,8 @@ wald_tbl <- tibble::tibble(
 )
 print(wald_tbl)
 
-## ========== Robustness ==========
+# robustness
+
 p99_val <- quantile(df$popularity_z, 0.99, na.rm = TRUE)
 df_trim <- dplyr::filter(df, popularity_z <= p99_val)
 m_trim  <- feols(f_levels_overall, data = df_trim, cluster = ~ club)
@@ -243,7 +251,8 @@ modelsummary(
   output    = "markdown"
 )
 
-## ========== Interaction visual ==========
+# interaction visual
+
 V_club_m2 <- sandwich::vcovCL(m2, cluster = ~ club)
 p_marg <- plot_slopes(
   m2,
@@ -254,9 +263,8 @@ p_marg <- plot_slopes(
          x = "Overall performance (z)", y = "∂ log Salary / ∂ Popularity (z)")
 print(p_marg)
 
-## ========== [NEW 2] Defense score deep-dive ==========
-## Your dissertation's core finding: defense is financially invisible.
-## This makes it explicit and visual.
+# defense score deeper dive
+
 p_def <- ggplot(df, aes(x = defense_score, y = log_w2025)) +
   geom_point(alpha = 0.4, size = 1.5, color = "steelblue") +
   geom_smooth(method = "lm", se = TRUE, color = "firebrick") +
@@ -266,7 +274,7 @@ p_def <- ggplot(df, aes(x = defense_score, y = log_w2025)) +
        x = "Defense Score (z)", y = "Log Salary (2025)")
 print(p_def)
 
-## ========== Heterogeneity by roster designation ==========
+# heterogenity x designation
 sub_controls <- "age + I(age^2) + mins + position"
 f_sub_m1 <- as.formula(paste("log_w2025 ~ overall_score + popularity_z +", sub_controls, "| club"))
 f_sub_m2 <- as.formula(paste("log_w2025 ~ overall_score * popularity_z +", sub_controls, "| club"))
@@ -315,7 +323,7 @@ for (rdes in levels(df$rosterDesignation)) {
   if (nrow(dsub) >= 10) do_het_print(dsub, rdes)
 }
 
-## ========== Diagnostics ==========
+# diagnostics
 r2_m3   <- fitstat(m3, "r2"); rmse_m3 <- fitstat(m3, "rmse")
 p_pred <- ggplot(df, aes(x = predict(m3), y = log_w2025)) +
   geom_point(alpha = 0.5, size = 1.3) +
@@ -342,14 +350,14 @@ qq <- ggplot(df_res, aes(sample = std_resid)) +
   labs(title = "Normal Q-Q Plot (M3 standardized residuals)", x = "Theoretical", y = "Sample")
 print(qq)
 
-## ========== Roster counts ==========
+# roster counts
 df %>%
   count(rosterDesignation, name = "N") %>%
   mutate(Share = round(N / sum(N), 3)) %>%
   arrange(desc(N)) %>%
   print()
 
-## ========== Economic magnitudes ==========
+# economic magnitudes
 mean_salary <- mean(df$salary2025, na.rm = TRUE)
 coef_m3 <- broom::tidy(m3)
 
@@ -376,9 +384,7 @@ bites <- dplyr::bind_rows(
 knitr::kable(bites,
              caption = "Economic magnitudes implied by M3: mean salary × coefficient (≈ $ change per 1 SD).")
 
-## ========== [NEW 3] Extended economic magnitudes — all five components ==========
-## Your original only showed Attack, Progression, Popularity.
-## This shows the full picture including the defensively invisible finding.
+# extended economic magnitudes — all five components
 bites_full <- dplyr::bind_rows(
   get_bite("Attack (z)",      "attack_score"),
   get_bite("Creation (z)",    "creation_score"),
@@ -396,7 +402,7 @@ bites_full <- dplyr::bind_rows(
 knitr::kable(bites_full,
              caption = "Full economic magnitudes (M3): all performance components + popularity.")
 
-## ========== Robustness specs ==========
+# robustness specs
 m3_base <- m3
 top_id  <- which.max(df$popularity_z)
 m3_excl <- feols(f_levels_vector, data = df[-top_id, ], cluster = ~ club)
@@ -425,7 +431,7 @@ if ("boottest" %in% ls("package:fixest")) {
                caption = "Wild-cluster bootstrap p-values (fixest::boottest, Rademacher, B=4,999)")
 }
 
-## ========== Coefficient plot — robustness ==========
+# coeff plot robust
 pack <- function(mod, lab) {
   broom::tidy(mod) %>% dplyr::filter(term %in% c("attack_score","progression_score","popularity_z")) %>%
     dplyr::mutate(model = lab)
@@ -448,10 +454,9 @@ p_coef <- ggplot(df_coef, aes(x = term, y = estimate, color = model, group = mod
   theme_minimal(base_size = 11)
 print(p_coef)
 
-## ========== [NEW 4] Club-level fixed effects — who pays above/below market? ==========
-## Extracts the club FE from M3 and ranks clubs by how much they pay
-## above or below what performance + popularity would predict.
-## Genuinely interesting for the "which clubs are smart buyers" story.
+# Club-level fixed effects — who pays above/below market?
+# Extracts the club FE from M3 and ranks clubs by how much they pay
+# above or below what performance + popularity would predict.
 club_fe <- fixef(m3)$club %>%
   as.data.frame() %>%
   rownames_to_column("club") %>%
